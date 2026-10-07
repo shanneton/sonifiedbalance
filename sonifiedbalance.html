@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonification de Posture</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #121212;
+            color: #ffffff;
+            text-align: center;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        .metric {
+            margin-top: 20px;
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Sonification de Posture</h1>
+    <button id="startButton">Démarrer la mesure</button>
+    <div class="metric">Oscillation : <span id="val">0</span></div>
+
+    <script>
+        let audioCtx, oscillator, gainNode;
+        let isRunning = false;
+
+        const startButton = document.getElementById('startButton');
+        const valDisplay = document.getElementById('val');
+
+        // Initialisation de la synthèse sonore
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            oscillator = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // Note La (440 Hz)
+
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime); // Silencieux au départ
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+        }
+
+        // Demande de permission et capture du mouvement
+        async function startTracking() {
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        alert('Permission refusée pour accéder aux capteurs.');
+                        return;
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            initAudio();
+            window.addEventListener('devicemotion', handleMotion);
+
+            // Empêcher la mise en veille de l'écran si supporté
+            if ('wakeLock' in navigator) {
+                try { await navigator.wakeLock.request('screen'); } catch (err) {}
+            }
+
+            isRunning = true;
+            startButton.textContent = "Arrêter";
+        }
+
+        function handleMotion(event) {
+            // Accélération sans la gravité
+            const acc = event.acceleration || event.accelerationIncludingGravity;
+            if (!acc) return;
+
+            const x = acc.x || 0;
+            const y = acc.y || 0;
+            const z = acc.z || 0;
+
+            // Calcul de la magnitude de l'oscillation (norme du vecteur accélération)
+            const magnitude = Math.sqrt(x * x + y * y + z * z);
+
+            // Filtrage basique pour isoler l'oscillation (seuil)
+            const threshold = 0.2;
+            let intensity = Math.max(0, magnitude - threshold);
+
+            // Normalisation de l'amplitude (Volume max atteint pour une accélération de 3 m/s²)
+            let volume = Math.min(1.0, intensity / 3.0);
+
+            // Mettre à jour le volume sonore lissé
+            if (gainNode && audioCtx) {
+                gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.05);
+            }
+
+            valDisplay.textContent = intensity.toFixed(2);
+        }
+
+        startButton.addEventListener('click', () => {
+            if (!isRunning) {
+                startTracking();
+            } else {
+                window.location.reload(); // Réinitialise l'état
+            }
+        });
+    </script>
+</body>
+</html>
